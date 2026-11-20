@@ -271,7 +271,11 @@ def logistic_pred(series, ws, xt, tier):
         sse = 0.0
         wsum = 0.0
         for (x, r, w) in sub:
-            pred = ceil / (1.0 + math.exp(-(fit["a"] + fit["b"] * x)))
+            # Same overflow guard the forecast below already uses: a steep
+            # fit evaluated at an early x can push z far negative, and
+            # math.exp(-z) would raise instead of scoring the ceiling.
+            z = fit["a"] + fit["b"] * x
+            pred = ceil / (1.0 + math.exp(-z)) if z > -30 else 0.0
             sse += w * (logit(pred) - logit(r)) ** 2
             wsum += w
         if wsum <= 0:
@@ -372,12 +376,20 @@ def blend_weights(states, trophies, levels, xt):
     if n > 160:
         # A very chatty recorder: thin the states for the backtest only
         # (the final forecast still uses every state), keeping the runtime
-        # comfortably inside the sandbox limit.
+        # comfortably inside the sandbox limit. The stride sample is joined
+        # by every state where the tracked-player count jumps by a quarter
+        # or more, because the counts candidate reads the republication
+        # arithmetic off those boundaries; a stride that skipped one would
+        # smooth the jump away and mis-score that candidate.
         stride = -(-n // 160)
-        thinned = states[::stride]
-        if thinned[-1] is not states[-1]:
-            thinned.append(states[-1])
-        states = thinned
+        keep = set(range(0, n, stride))
+        keep.add(n - 1)
+        for j in range(1, n):
+            prev_n = states[j - 1].get("players_tracked") or 0
+            this_n = states[j].get("players_tracked") or 0
+            if prev_n > 0 and abs(this_n - prev_n) >= 0.25 * prev_n:
+                keep.add(j)
+        states = [states[j] for j in sorted(keep)]
         n = len(states)
     x_last = x_of(parse_ts(states[-1]["at"]))
     dx_final = max(0.05, xt - x_last)
