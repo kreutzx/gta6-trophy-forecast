@@ -74,6 +74,46 @@ earlier iterations — a full-history fit, and an earners/players
 decomposition extrapolated without damping — overshot badly and were
 discarded on the same simulator.
 
+## v3 — forecast the earners, not the rate
+
+v2 fit the printed rate and calibrated one global band; on the real
+development cut its intervals collapsed (coverage 0.036), because the
+printed rate is a ratio whose denominator moves in steps. v3 models
+the measurement itself:
+
+1. **Earners space.** Every read becomes implied earners
+   (`rate × tracked / 100`). Growth is fitted on earners, the tracked
+   pool is forecast separately, and the rate is the quotient — so a
+   denominator jump dilutes rates instead of corrupting the fit.
+2. **Segmented pool.** The tracked-pool fit restarts at the last
+   refresh (a jump of ×1.4 or more): only post-refresh states, on the
+   log-time axis, anchored at the last count, growth capped.
+3. **Persistence anchors, trends adjust.** Six candidates per trophy
+   (persistence, two pulls toward the earners median, the earners
+   quotient, a shrunk logit trend, a saturating-ceiling curve) are
+   blended by an in-program rolling-origin backtest whose origins
+   straddle refreshes and whose gaps are weighted toward the case's
+   own horizon; persistence keeps a floor share.
+4. **Band from components.** The spread is the quadrature of the
+   blend's own out-of-sample backtest error, a 0.5-logit/√day
+   random walk, a refresh-risk term scaled by the page's own
+   state-to-state shock and widened when the trailing state has been
+   frozen for hours, candidate disagreement, and the median's
+   distance from the anchor. Quantile ends write the censored values
+   (0.00 / 100.00) when the band saturates — scoring clamps them
+   anyway, and realised ends are then covered.
+5. **One frozen page** (the practice shape) gets a persistence
+   median scaled down by the dilution a first refresh brings, under
+   the refresh-sized band; never-earned trophies get a tier
+   emergence prior instead of a fitted zero.
+
+Backtests on simulated regimes that include republication steps and
+denominator jumps: pinball loss 0.21–0.48 with 0.98–1.00 interval
+coverage across smooth, plateau, harsh-growth, refresh and dev-cut
+shapes, against 0.86 loss / 0.05 coverage for persistence on the
+refresh shape. Practice cases run in ~0.05 s each, byte-identical
+across runs; a 140-state stress case takes ~0.5 s of the 8 s limit.
+
 ## Layout
 
 - `main.py` — the forecaster, self-contained.
